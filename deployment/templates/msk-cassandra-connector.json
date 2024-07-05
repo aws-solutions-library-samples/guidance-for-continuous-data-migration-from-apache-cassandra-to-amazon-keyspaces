@@ -1,0 +1,72 @@
+{
+  "connectorName": "kafka-cassandra-sink-connector",
+  "kafkaConnectVersion": "2.7.1",
+  "serviceExecutionRoleArn": "msk_role",
+  "plugins": [
+    {
+      "customPlugin": {
+        "customPluginArn": plugin_arn
+        "revision": 1
+      }
+    }
+  ],
+  "capacity": {
+    "provisionedCapacity": {
+      "workerCount": 1,
+      "mcuCount": 1
+    }
+  },
+  "kafkaCluster": {
+    "apacheKafkaCluster": {
+      "bootstrapServers": bootstrap_brokers
+      "vpc": {
+        "subnets": [
+          "subnet1",
+          "subnet2",
+          "subnet3"
+        ],
+        "securityGroups": [
+          "msk_sg"
+        ]
+      }
+    }
+  },
+  "kafkaClusterClientAuthentication": {
+    "authenticationType": "NONE"
+  },
+  "kafkaClusterEncryptionInTransit": {
+    "encryptionType": "PLAINTEXT"
+  },
+  "logDelivery": {
+    "workerLogDelivery": {
+      "cloudWatchLogs": {
+        "logGroup": "msk-ks-cass-lg",
+        "enabled": true
+      }
+    }
+  },
+  "connectorConfiguration": {
+    "connector.class": "com.datastax.oss.kafka.sink.CassandraSinkConnector",
+    "datastax-java-driver.basic.contact-points": "192.168.3.227:9042",
+    "datastax-java-driver.basic.load-balancing-policy.local-datacenter": "Datacenter1",
+    "datastax-java-driver.advanced.retry-policy.class": "DefaultRetryPolicy",
+    "datastax-java-driver.basic.default-idempotence": "true",
+    "datastax-java-driver.advanced.connection.init-query-timeout": "500",
+    "datastax-java-driver.advanced.control-connection.timeout": "500",
+    "auth.provider": "PLAIN",
+    "auth.username": "cassandra",
+    "auth.password": "cassandra",
+    "tasks.max": "4",
+    "topics": "mskkscassdualwrites",
+    "ssl.provider": "None",
+    "offset.flush.interval.ms": "1000",
+    "connectionPoolLocalSize": "3",
+    "maxNumberOfRecordsInBatch": "1",
+    "ssl.hostnameValidation": "false",
+    "queryExecutionTimeout": "100",
+    "topic.mskkscassdualwrites.msk_ks_cass_blog.user_activity.consistencyLevel": "LOCAL_QUORUM",
+    "topic.mskkscassdualwrites.msk_ks_cass_blog.user_activity.deletesEnabled": "false",
+    "topic.mskkscassdualwrites.msk_ks_cass_blog.user_activity.query": "INSERT INTO msk_ks_cass_blog.user_activity (user_id, activity_time, activity_type, activity_details) VALUES (:user_id, :activity_time, :activity_type, :activity_details);",
+    "topic.mskkscassdualwrites.msk_ks_cass_blog.user_activity.mapping": "user_id=value.user_id, activity_time=value.activity_time, activity_type=value.activity_type, activity_details=value.activity_details"
+  }
+}
