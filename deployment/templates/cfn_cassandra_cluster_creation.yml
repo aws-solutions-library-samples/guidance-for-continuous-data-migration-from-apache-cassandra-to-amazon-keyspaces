@@ -87,6 +87,11 @@ Resources:
     Properties:
       GroupDescription: "Cassandra cluster security group"
       VpcId: !Ref VpcId
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
       Tags:
         - Key: "Name"
           Value: "cass-cluster-sg"
@@ -158,6 +163,7 @@ Resources:
       ToPort: 22
       Description: "Allow SSH access from the specified Cassandra client security group"
 
+
   EC2InstanceOne:
     Type: AWS::EC2::Instance
     Properties:
@@ -203,6 +209,7 @@ Resources:
           Ebs:
             VolumeSize: 100
             VolumeType: "gp2"
+            Encrypted: true
 
   EC2InstanceTwo:
     Type: AWS::EC2::Instance
@@ -249,6 +256,8 @@ Resources:
           Ebs:
             VolumeSize: 100
             VolumeType: "gp2"
+            Encrypted: true
+
 
   EC2InstanceThree:
     Type: AWS::EC2::Instance
@@ -295,6 +304,8 @@ Resources:
           Ebs:
             VolumeSize: 100
             VolumeType: "gp2"
+            Encrypted: true
+
 
 
 Outputs:
