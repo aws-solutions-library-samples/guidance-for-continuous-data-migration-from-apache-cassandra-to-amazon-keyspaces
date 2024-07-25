@@ -40,7 +40,7 @@
   "logDelivery": {
     "workerLogDelivery": {
       "cloudWatchLogs": {
-        "logGroup": "msk-ks-cass-lg",
+        "logGroup": "msk-ks-lg",
         "enabled": true
       }
     }

@@ -227,6 +227,11 @@ Resources:
           FromPort: 22
           ToPort: 22
           CidrIp: !Ref SSHLocation
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
 
   MSKSecurityGroup:
     Type: 'AWS::EC2::SecurityGroup'
@@ -253,18 +258,42 @@ Resources:
           SourceSecurityGroupId: !GetAtt
             - KafkaClientInstanceSecurityGroup
             - GroupId
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: 0.0.0.0/0
 
-  ### Log group for the blog testing
-  BlogLogGroup:
+  ### Log group for Keyspaces connector loggging
+  KSConnectorLogGroup:
     Type: 'AWS::Logs::LogGroup'
     Properties:
-      LogGroupName: msk-ks-cass-lg
+      LogGroupName: msk-ks-lg
       RetentionInDays: 14
       Tags:
         - Key: Name
-          Value: msk-ks-cass-Loggroup
+          Value: msk-ks-connector-Loggroup
+  ### Log group for Cassandra connector loggging
+  CassConnectorLogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: msk-cass-lg
+      RetentionInDays: 14
+      Tags:
+        - Key: Name
+          Value: msk-cass-connector-Loggroup
+  ### Log group for MSK logs
+  MskLogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    Properties:
+      LogGroupName: msk-lg
+      RetentionInDays: 14
+      Tags:
+        - Key: Name
+          Value: msk-Loggroup
+
   KafkaClientEC2Instance:
-    DependsOn: BlogMSKCluster
+    DependsOn: SolMSKCluster
     Type: 'AWS::EC2::Instance'
     Properties:
       InstanceType: t2.medium
@@ -317,25 +346,31 @@ Resources:
 
         export msk_arn=$(aws kafka list-clusters | grep "ClusterArn" | awk -F\" '{print $4}')
 
-        export msk_bootserv=$(aws kafka get-bootstrap-brokers --cluster-arn $msk_arn | grep -o '"BootstrapBrokerStringSaslIam": "[^"]*"'|awk -F\" '{print $4}')
+        export msk_bootserv=$(aws kafka get-bootstrap-brokers --cluster-arn $msk_arn | grep -o '"BootstrapBrokerStringSaslIam": "[^"]*"' | awk -F\" '{print $4}')
 
-        wget -P $WORKING_DIR/kafka/kafka_2.13-3.5.1/libs  https://github.com/aws/aws-msk-iam-auth/releases/download/v1.1.1/aws-msk-iam-auth-1.1.1-all.jar
+        wget -P $WORKING_DIR/kafka/kafka_2.13-3.5.1/libs https://github.com/aws/aws-msk-iam-auth/releases/download/v1.1.1/aws-msk-iam-auth-1.1.1-all.jar
 
-        touch kafka/kafka_2.13-3.5.1/bin/client.properties
+        touch $WORKING_DIR/kafka/kafka_2.13-3.5.1/bin/client.properties
+
         chown -R ec2-user:ec2-user $WORKING_DIR/kafka
 
-        cat <<EOF > kafka/kafka_2.13-3.5.1/bin/client.properties
+        cat <<EOF > $WORKING_DIR/kafka/kafka_2.13-3.5.1/bin/client.properties
+
         security.protocol=SASL_SSL
+
         sasl.mechanism=AWS_MSK_IAM
+
         sasl.jaas.config=software.amazon.msk.auth.iam.IAMLoginModule required;
+
         sasl.client.callback.handler.class=software.amazon.msk.auth.iam.IAMClientCallbackHandler
+
         EOF
 
         chown -R ec2-user:ec2-user $WORKING_DIR/kafka
+
         $WORKING_DIR/kafka/kafka_2.13-3.5.1/bin/kafka-topics.sh --create --command-config $WORKING_DIR/kafka/kafka_2.13-3.5.1/bin/client.properties --bootstrap-server $msk_bootserv --replication-factor 3 --partitions 3 --topic mskkscassdualwrites
 
         curl -L https://downloads.datastax.com/kafka/kafka-connect-cassandra-sink.tar.gz -o kafka-connect-cassandra-sink.tar.gz
-        chown ec2-user:ec2-user kafka-connect-cassandra-sink.tar.gz
 
         tar zxf kafka-connect-cassandra-sink.tar.gz
 
@@ -343,10 +378,10 @@ Resources:
 
         zip -r kafka-connect-cassandra-sink.zip kafka-connect-cassandra-sink-1.4.0
 
-
         aws s3 cp --region $REGION kafka-connect-cassandra-sink.zip s3://msk-ks-cass-$AWS_ACCOUNT_ID
 
         cat <<EOF > ./kafka-sink-plugin.json
+
         {
           "name": "kafka-keyspaces-sink-plugin",
           "contentType": "ZIP",
@@ -357,11 +392,19 @@ Resources:
             }
           }
         }
+
         EOF
 
         chown ec2-user:ec2-user kafka-sink-plugin.json
 
         aws kafkaconnect create-custom-plugin --cli-input-json file://kafka-sink-plugin.json --region $REGION
+
+      BlockDeviceMappings:
+        - DeviceName: "/dev/xvda"
+          Ebs:
+            VolumeSize: 8
+            VolumeType: "gp3"
+            Encrypted: true
 
 
   EC2Role:
@@ -385,14 +428,27 @@ Resources:
             Version: "2012-10-17"
             Statement:
               - Effect: Allow
-                Action: "kafkaconnect:*"
+                Action:
+                  - "kafkaconnect:Describe*"
+                  - "kafkaconnect:List*"
+                  - "kafkaconnect:Create*"
+                  - "kafkaconnect:Delete*"
+                  - "kafkaconnect:Update*"
                 Resource: '*'
         - PolicyName: msk-iam
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
               - Effect: Allow
-                Action: "kafka-cluster:*"
+                Action:
+                  - "kafka-cluster:Describe*"
+                  - "kafka-cluster:List*"
+                  - "kafka-cluster:Create*"
+                  - "kafka-cluster:Delete*"
+                  - "kafka-cluster:Update*"
+                  - "kafka-cluster:Write*"
+                  - "kafka-cluster:Alter*"
+                  - "kafka-cluster:Connect*"
                 Resource: '*'
       ManagedPolicyArns:
         - 'arn:aws:iam::aws:policy/AmazonMSKFullAccess'
@@ -418,14 +474,27 @@ Resources:
             Version: "2012-10-17"
             Statement:
               - Effect: Allow
-                Action: "kafkaconnect:*"
+                Action:
+                  - "kafkaconnect:Describe*"
+                  - "kafkaconnect:List*"
+                  - "kafkaconnect:Create*"
+                  - "kafkaconnect:Delete*"
+                  - "kafkaconnect:Update*"
                 Resource: '*'
         - PolicyName: msk-iam
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
               - Effect: Allow
-                Action: "kafka-cluster:*"
+                Action:
+                  - "kafka-cluster:Describe*"
+                  - "kafka-cluster:List*"
+                  - "kafka-cluster:Create*"
+                  - "kafka-cluster:Delete*"
+                  - "kafka-cluster:Update*"
+                  - "kafka-cluster:Write*"
+                  - "kafka-cluster:Alter*"
+                  - "kafka-cluster:Connect*"
                 Resource: '*'
       ManagedPolicyArns:
         - 'arn:aws:iam::aws:policy/AmazonMSKFullAccess'
@@ -434,21 +503,9 @@ Resources:
     Type: AWS::IAM::User
     Properties:
       UserName: ks-user
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonKeyspacesFullAccess
 
-  KSUserPolicyAttachment:
-    Type: AWS::IAM::ManagedPolicy
-    Properties:
-      ManagedPolicyName: AmazonKeyspacesFullAccess
-      Description: "Full access to Amazon Keyspaces"
-      PolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Action:
-              - cassandra:*
-            Resource: "*"
-      Users:
-        - Ref: KSUser
 
   EC2InstanceProfile:
     Type: 'AWS::IAM::InstanceProfile'
@@ -456,7 +513,7 @@ Resources:
       InstanceProfileName: EC2MSKProfile
       Roles:
         - !Ref EC2Role
-  BlogMSKCluster:
+  SolMSKCluster:
     Type: 'AWS::MSK::Cluster'
     Properties:
       BrokerNodeGroupInfo:
@@ -486,6 +543,12 @@ Resources:
       EnhancedMonitoring: PER_TOPIC_PER_BROKER
       KafkaVersion: 3.5.1
       NumberOfBrokerNodes: 3
+      LoggingInfo:
+        BrokerLogs:
+          CloudWatchLogs:
+            Enabled: true
+            LogGroup: !Ref MskLogGroup
+
 
   MSKConnectorSG:
     Type: 'AWS::EC2::SecurityGroupIngress'
@@ -584,9 +647,9 @@ Outputs:
   MSKconnectRoleID:
     Description: The Arn of the msk connect Role
     Value: !GetAtt MskRole.Arn
-  BlogMSKClusterArn:
+  SolMSKClusterArn:
     Description: The Arn for the MSK cluster
-    Value: !Ref BlogMSKCluster
+    Value: !Ref SolMSKCluster
   kafkaclinetinstance:
     Description: The Arn for the MSK cluster
     Value: !Ref KafkaClientEC2Instance
