@@ -35,7 +35,7 @@ Parameters:
     AllowedPattern: 'subnet-[\da-f]{8}|subnet-[\da-f]{17}'
     ConstraintDescription: Must be a valid Subnet ID.
   SourceSecurityGroup:
-    Description: Provide security group ID of any source like Application or MSK to access Cassandra cluster
+    Description: Provide security group ID of any source like Application or MSK to access Cassandra cluster using CQL protocol
     Type: String
     AllowedPattern: '^sg-[\da-f]{8}|sg-[\da-f]{17}$'
     ConstraintDescription: Must be a valid security group ID or left blank.
@@ -92,6 +92,7 @@ Resources:
           FromPort: -1
           ToPort: -1
           CidrIp: 0.0.0.0/0
+          Description: "Allow all outbound traffic"
       Tags:
         - Key: "Name"
           Value: "cass-cluster-sg"
@@ -204,6 +205,9 @@ Resources:
           sed -i "s/endpoint_snitch:.*/endpoint_snitch: GossipingPropertyFileSnitch/" /home/ubuntu/apache-cassandra-3.11.2/conf/cassandra.yaml
           sed -i "s/dc=dc1/dc=Datacenter1/" /home/ubuntu/apache-cassandra-3.11.2/conf/cassandra-rackdc.properties
           sed -i "s/rack=rack1/rack=RACK1/" /home/ubuntu/apache-cassandra-3.11.2/conf/cassandra-rackdc.properties
+
+      Monitoring: true
+      DisableApiTermination: true
       BlockDeviceMappings:
         - DeviceName: "/dev/sda1"
           Ebs:
@@ -251,6 +255,9 @@ Resources:
           sed -i "s/endpoint_snitch:.*/endpoint_snitch: GossipingPropertyFileSnitch/" /home/ubuntu/apache-cassandra-3.11.2/conf/cassandra.yaml
           sed -i "s/dc=dc1/dc=Datacenter1/" /home/ubuntu/apache-cassandra-3.11.2/conf/cassandra-rackdc.properties
           sed -i "s/rack=rack1/rack=RACK2/" /home/ubuntu/apache-cassandra-3.11.2/conf/cassandra-rackdc.properties
+
+      Monitoring: true
+      DisableApiTermination: true
       BlockDeviceMappings:
         - DeviceName: "/dev/sda1"
           Ebs:
@@ -299,13 +306,15 @@ Resources:
           sed -i "s/endpoint_snitch:.*/endpoint_snitch: GossipingPropertyFileSnitch/" /home/ubuntu/apache-cassandra-3.11.2/conf/cassandra.yaml
           sed -i "s/dc=dc1/dc=Datacenter1/" /home/ubuntu/apache-cassandra-3.11.2/conf/cassandra-rackdc.properties
           sed -i "s/rack=rack1/rack=RACK3/" /home/ubuntu/apache-cassandra-3.11.2/conf/cassandra-rackdc.properties
+
+      Monitoring: true
+      DisableApiTermination: true
       BlockDeviceMappings:
         - DeviceName: "/dev/sda1"
           Ebs:
             VolumeSize: 100
             VolumeType: "gp2"
             Encrypted: true
-
 
 
 Outputs:

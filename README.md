@@ -30,8 +30,7 @@ Architecture diagram:
 
 ![Architecture diagram](./assets/images/architecture.png)
 
-2. Include the architecture diagram image, as well as the steps explaining the high-level overview and flow of the architecture. 
-    - To add a screenshot, create an ‘assets/images’ folder in your repository and upload your screenshot to it. Then, using the relative file path, add it to your README. 
+
 
 ### Cost
 
@@ -54,7 +53,7 @@ We recommend creating a [Budget](https://docs.aws.amazon.com/cost-management/la
 ## Prerequisites
 - The [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) installed.
 - Access to deploy Cloudformation template and create resources (Amazon MSK, Amazon Keyspaces, EC2, VPC, Subnets, Security groups, IAM roles and Policies)
-- Clone Repository
+- Install Git to Clone Repository
 
 ### Operating System
 
@@ -64,12 +63,14 @@ We recommend creating a [Budget](https://docs.aws.amazon.com/cost-management/la
 
 This deployment requires that you have access to the following AWS services:
 
-- Amazon S3 
+- Amazon Simple Storage Service (Amazon S3) 
 - Amazon Managed Streaming for Apache Kafka (MSK)
 - Amazon Keyspaces
-- EC2
-- VPC
-- IAM
+- Amazon Elastic Compute Cloud (Amazon EC2)
+- Amazon Virtual Private Cloud (Amazon VPC)
+- AWS Identity and Access Management (IAM)
+- AWS Cloudformation
+- Amazon Cloudwatch
 
 
 ### Supported Regions
@@ -84,12 +85,10 @@ These deployment instructions are optimized to best work on Mac or Amazon Linux 
 
 1. Clone the repo using command 
 ```
-
 git clone https://github.com/aws-solutions-library-samples/guidance-for-dual-writes-migration-from-cassandra-to-keyspaces-using-amazon-kafka-msk-on-aws
 ```
 2. cd to the repo templates folder 
 ```
-
 cd guidance-for-dual-writes-migration-from-cassandra-to-keyspaces-using-amazon-kafka-msk-on-aws/deployment/templates
 ```
 3. Configure AWS CLI environment by setting below values. Make sure to replace the place holders with your environment specific values
@@ -110,46 +109,45 @@ Below screenshot is an example of how CloudTrail log an API call to create Amazo
 ![Example CloudTrail Screenshot](./assets/images/cloudtrail.png)
 
 5. Run below command to create S3 bucket to place Kafka Cassandra Sink plugin
- ```
-
+```
 aws s3api create-bucket --bucket msk-ks-cass-$AWS_ACCOUNT_ID
 ```
 
 6. Run below command to create EC2 Key Pair
 
- ```
-
+```
 aws ec2 create-key-pair --key-name msk-ks-cass-kp --query 'KeyMaterial' --output text > msk-ks-cass-kp.pem
 ```
 
-Note: output file "msk-ks-cass-kp.pem" content can be later used from Deployment Validation step 5 to connect to Cassandra nodes from Client EC2 instance. So save the file.
+Note: output file `msk-ks-cass-kp.pem` content can be later used from Deployment Validation step 5 to connect to Cassandra nodes from Client EC2 instance. So save the file.
 
-7. Now create EC2 Key pair with name "msk-ks-cass-kp" and download the key pair for future use
-8. Now run below command to deploy cloudformation template to create new VPC, Subnets, Security groups, Amazon MSK Cluster, Kafka Client EC2 instance, Amazon Keyspaces VPC endpoint, Amazon Keyspaces Keyspace and table, Amazon MSK custom plugin, Kafka topic and IAM roles with policies. Please note that MSK cluster creation will take some time, Don't cancel or stop the command in middle.You can check progress from Cloudformation console.
+
+7. Now run below command to deploy cloudformation template to create new VPC, Subnets, Security groups, Amazon MSK Cluster, Kafka Client EC2 instance, Amazon Keyspaces VPC endpoint, Amazon Keyspaces Keyspace and table, Amazon MSK custom plugin, Kafka topic and IAM roles with policies. Please note that MSK cluster creation will take 20 to 30 minutes or more, Don't cancel or stop the command in middle.You can check progress from Cloudformation console.
+
 ```
 aws cloudformation deploy --template-file cfn-msk-ks-cass.yml --stack-name msk-ks-stack --parameter-overrides KeyName=msk-ks-cass-kp --tags purpose=msk-keyspaces-creation --s3-bucket msk-ks-cass-$AWS_ACCOUNT_ID  --capabilities CAPABILITY_NAMED_IAM
 ```
-9. Once Cloudformation stack "msk-ks-stack" is finished, then run below command to capture output of stack into a file.
+8. Once Cloudformation stack `msk-ks-stack` is finished, then run below command to capture output of stack into a file.
 ```
 aws cloudformation describe-stacks --stack-name msk-ks-stack --query "Stacks[0].Outputs[*].[OutputKey,OutputValue]" --output text > stack_resources_output
 ```
-10. Now pick values of "MSKCassandraVPCId", "PrivateSubnetOne", "PrivateSubnetTwo", "PrivateSubnetThree" and "KafkaClientInstanceSecurityGroupID" from output file "stack_resources_output"
+9. Now pick values of`MSKCassandraVPCId`, `PrivateSubnetOne`, `PrivateSubnetTwo`, `PrivateSubnetThree` and `KafkaClientInstanceSecurityGroupID` from output file `stack_resources_output`
 
-11. Now pass values from output file "stack_resources_output" to cloudformation deploy parameters as mentioned below and deploy the cloudformation template to create Cassandra nodes
+10. Now pass values from output file "stack_resources_output" to cloudformation deploy parameters as mentioned below and deploy the cloudformation template to create Cassandra nodes
 
-"MSKCassandraVPCId" to VpcId, 
-"PrivateSubnetOne" to Subnet1, 
-"PrivateSubnetTwo" to Subnet2, 
-"PrivateSubnetThree" to Subnet3,
-"MSKSecurityGroupID" to SourceSecurityGroup and
-"KafkaClientInstanceSecurityGroupID" to CassandraClientSecurityGroup
+- `MSKCassandraVPCId` to VpcId, 
+- `PrivateSubnetOne` to Subnet1, 
+- `PrivateSubnetTwo` to Subnet2, 
+- `PrivateSubnetThree` to Subnet3,
+- `MSKSecurityGroupID` to SourceSecurityGroup and
+- `KafkaClientInstanceSecurityGroupID` to CassandraClientSecurityGroup
 
 
 ```
 aws cloudformation deploy --template-file cfn_cassandra_cluster_creation.yml --stack-name cass-cluster-stack --parameter-overrides KeyName=msk-ks-cass-kp VpcId=<value of MSKCassandraVPCId> Subnet1=<value of PrivateSubnetOne> Subnet2=<value of PrivateSubnetTwo> Subnet3=<value of PrivateSubnetThree> SourceSecurityGroup=<value of MSKSecurityGroupID> CassandraClientSecurityGroup=<value of KafkaClientInstanceSecurityGroupID> --tags purpose=msk-cass-nodes-creation --capabilities CAPABILITY_NAMED_IAM
 ```
 
-12. Once Cloudformation stack "cass-cluster-stack" is finished, then run below command to capture output of stack into a file.
+11. Once Cloudformation stack `cass-cluster-stack` is finished, then run below command to capture output of stack into a file.
 
 ```
 aws cloudformation describe-stacks --stack-name cass-cluster-stack --query "Stacks[0].Outputs[*].[OutputKey,OutputValue]" --output text > stack_resources_cassandra_output
@@ -172,22 +170,30 @@ cd guidance-for-dual-writes-migration-from-cassandra-to-keyspaces-using-amazon-k
 sh update_param_keyspaces.sh
 ```
 
-2. Generate Amazon Keyspaces service specific credentials for IAM user "ks-user" that was created as part of "msk-ks-stack" deployment
+2. Generate Amazon Keyspaces service specific credentials for IAM user `ks-user` that was created as part of `msk-ks-stack` deployment.
+- Navigate to IAM users and select `ks-user` and navigate to `Security Credentials` tab
 
-3. Update "auth.username" and "auth.password" values in "msk-keyspaces-connector.json" file with Keyspaces service specific credentials
+![Architecture diagram](./assets/images/iam.png)
+
+- scroll down to `Credentials for Amazon Keyspaces` and click `Generate Credentials`
+![Architecture diagram](./assets/images/ksuser.png)
+
+3. Update `auth.username` and `auth.password` values in `msk-keyspaces-connector.json` file with Keyspaces service specific credentials
+
+![Architecture diagram](./assets/images/kscreds.png)
 
 4. Now Create Amazon MSK connector for Amazon Keyspaces by running below command
 
 ```
 aws kafkaconnect create-connector --cli-input-json file://msk-keyspaces-connector.json
 ```
-5. Connect to Cassandra Kafka client EC2 instance “msk-ks-cass-KafkaClientInstance” using EC2 Instance Connect and copy the Key Material from msk-ks-cass-kp.pem file from step 6 in Deployment Steps. Make sure to change permissions on the file to 400
+5. Connect to Cassandra Kafka client EC2 instance `msk-ks-cass-KafkaClientInstance` using EC2 Instance Connect and copy the Key Material from `msk-ks-cass-kp.pem` file from step 6 in Deployment Steps. Make sure to change permissions on the file to 400
 
 ```
 chmod 400 msk-ks-cass-kp.pem
 ```
 
-6. Now finish configuring Cassandra cluster, starting with Cassandra node One. and ssh to “CassandraNode-One” using EC2 key-pair msk-ks-cass-kp.pem. Make sure to replace "<IP Address of CassandraNode-one>" with IP address of Cassandra Node one.
+6. Now finish configuring Cassandra cluster, starting with Cassandra node One. and ssh to `CassandraNode-One` using EC2 key-pair `msk-ks-cass-kp.pem`. Make sure to replace `<IP Address of CassandraNode-one>` with IP address of `CassandraNode-one`.
 
 ```
 ssh -i "msk-ks-cass-kp.pem" ubuntu@<IP Address of CassandraNode-one>
@@ -197,7 +203,6 @@ ssh -i "msk-ks-cass-kp.pem" ubuntu@<IP Address of CassandraNode-one>
 ```
 cd /home/ubuntu/apache-cassandra-3.11.2
 bin/cassandra
-bin/nodetool status
 ```
 
 ```
@@ -210,29 +215,37 @@ bin/nodetool status
 cd /home/ubuntu/apache-cassandra-3.11.2
 bin/cqlsh `hostname -i` -u cassandra -p cassandra
 
+```
+
+```
 select * from system.local
 ```
 
 8. Stay on commandline and get IP Address of "CassandraNode-One" with below command to use it in other two nodes for Cassandra cluster setup
 
 ```
-
 hostname -i
 ```
 
-9. Now configure second Cassandra node by doing ssh to “CassandraNode-Two” using EC2 key-pair msk-ks-cass-kp.pem. 
+9. Now configure second Cassandra node by doing ssh to `CassandraNode-Two` using EC2 key-pair `msk-ks-cass-kp.pem`. 
 
-Edit "cassandra.yaml" and update value of "seeds" property with IP Address of CassandraNode-One from step-8 and save the file.
+
+- Edit `cassandra.yaml` and update value of `seeds` property with IP Address of `CassandraNode-One` from `step-8` and `save the file`.
 
 ```
 ssh -i "msk-ks-cass-kp.pem" ubuntu@<IP Address of CassandraNode-Two>
 ```
 
+```
+cd /home/ubuntu/apache-cassandra-3.11.2
+vi conf/cassandra.yaml
+```
+
+- Start Cassandra service 
 
 ```
 cd /home/ubuntu/apache-cassandra-3.11.2
 bin/cassandra
-bin/nodetool status
 ```
 
 ```
@@ -240,9 +253,9 @@ bin/nodetool status
 ```
 
 
-10. Now configure Third Cassandra node by doing ssh to “CassandraNode-Three” using EC2 key-pair msk-ks-cass-kp.pem. 
+10. Now configure Third Cassandra node by doing ssh to `CassandraNode-Three` using EC2 key-pair `msk-ks-cass-kp.pem`. 
 
-Edit "cassandra.yaml" and update value of "seeds" property with IP Address of CassandraNode-One from step-8 and save the file.
+- Edit `cassandra.yaml` and update value of `seeds` property with IP Address of `CassandraNode-One` from `step-8` and `save the file`.
 
 ```
 ssh -i "msk-ks-cass-kp.pem" ubuntu@<IP Address of CassandraNode-Three>
@@ -251,8 +264,14 @@ ssh -i "msk-ks-cass-kp.pem" ubuntu@<IP Address of CassandraNode-Three>
 
 ```
 cd /home/ubuntu/apache-cassandra-3.11.2
+vi conf/cassandra.yaml
+```
+
+- Start Cassandra service 
+
+```
+cd /home/ubuntu/apache-cassandra-3.11.2
 bin/cassandra
-bin/nodetool status
 ```
 
 ```
@@ -261,10 +280,9 @@ bin/nodetool status
 
 Note: nodetool status should show you a Three node Cassandra cluster
 
-11. Stay on “CassandraNode-Three” commandline and create keyspace and table.
+11. Stay on `CassandraNode-Three` commandline and create `keyspace` and `table` in Cassandra cluster.
 
 ```
-
 cd /home/ubuntu/apache-cassandra-3.11.2
 
 bin/cqlsh `hostname -i` -u cassandra -p cassandra
@@ -272,9 +290,11 @@ bin/cqlsh `hostname -i` -u cassandra -p cassandra
 ```
 
 ```
-
 CREATE KEYSPACE msk_ks_cass_blog WITH replication = {'class': 'NetworkTopologyStrategy', 'Datacenter1': '3'}  AND durable_writes = true;
 
+```
+
+```
 CREATE TABLE msk_ks_cass_blog.user_activity (
     user_id text,
     activity_time timestamp,
@@ -285,14 +305,14 @@ CREATE TABLE msk_ks_cass_blog.user_activity (
 
 ```
 
-12. Now exit from Cassandra node and Kafka client EC2 instance and go back to commandline where you downloaded the repo to configure input json file for Amazon MSK Cassandra connector.
+12. Now exit from `CassandraNode-Three` and `msk-ks-cass-KafkaClientInstance`  and go back to commandline where you downloaded the repo to configure input json file for Amazon MSK Cassandra connector.
 
 ```
 cd guidance-for-dual-writes-migration-from-cassandra-to-keyspaces-using-amazon-kafka-msk-on-aws/deployment/templates
 sh update_param_cassandra.sh
 ```
 
-13. Now update cassandra cluster IP address in “msk-cassandra-connector.json” file. Set value of "datastax-java-driver.basic.contact-points" property to “CassandraNode-One” IP Address and save it
+13. Now update cassandra cluster IP address in `msk-cassandra-connector.json` file. Set value of `datastax-java-driver.basic.contact-points` property to `CassandraNode-One` IP Address and save it
 
 ```
 
@@ -300,16 +320,15 @@ vi msk-cassandra-connector.json
 "datastax-java-driver.basic.contact-points": “<CassandraNode-One IP Address>:9042"
 ```
 
-14. Now create Amazon MSK connector for Cassandra database by using below command.
+14. Now create `Amazon MSK connector for Cassandra database` by using below command.
 
 ```
-
 aws kafkaconnect create-connector --cli-input-json file://msk-cassandra-connector.json
 ```
 
-15. Now you have Amazon MSK cluster with two MSK connect connectors (one for Apache Cassandra and another one for Amazon keyspaces) ready to make dual writes. 
+15. Now you have Amazon MSK cluster with `two MSK connect connectors (one for Apache Cassandra and another one for Amazon keyspaces)` ready to make dual writes. 
 
-Connect to commandline of Kafka client EC2 instance “msk-ks-cass-KafkaClientInstance” using EC2 Instance connect and set below environment variables.
+Connect to commandline of Kafka client EC2 instance `msk-ks-cass-KafkaClientInstance` using EC2 Instance connect and set below environment variables.
 
 ```
 
@@ -320,48 +339,45 @@ export msk_arn=$(aws kafka list-clusters | grep "ClusterArn" | awk -F\" '{print 
 export msk_bootserv=$(aws kafka get-bootstrap-brokers --cluster-arn $msk_arn | grep -o '"BootstrapBrokerStringSaslIam": "[^"]*"'|awk -F\" '{print $4}')
 ```
 
-16. Now connect to kafka producer, generate and publish messages to Kafka topic "mskkscassdualwrites". Amazon MSK connect feature of Amazon Managed Streaming for Kafka (Amazon MSK), ingests the data from kafka topic “mskkscassdualwrites” to Apache Cassandra and Amazon Keyspaces.
+16. Now connect to `kafka producer`, generate and publish messages to Kafka topic `mskkscassdualwrites`. Amazon MSK connect feature of Amazon Managed Streaming for Kafka (Amazon MSK), ingests the data from kafka topic `mskkscassdualwrites` to Apache Cassandra and Amazon Keyspaces.
 
 ```
-
 $WORKING_DIR/kafka/kafka_2.13-3.5.1/bin/kafka-console-producer.sh --broker-list $msk_bootserv --producer.config $WORKING_DIR/kafka/kafka_2.13-3.5.1/bin/client.properties --topic mskkscassdualwrites
-
 ```
 
 Now paste below messages one after another and hit enter after each message
 
 
 ```
-
 {"user_id": "user123", "activity_time": "2023-05-10T12:00:00Z", "activity_type": "click", "activity_details": "Clicked on 'Learn More' button"}
 ```
 
 ```
-
 {"user_id": "user124", "activity_time": "2023-05-10T12:05:00Z", "activity_type": "view", "activity_details": "Viewed the product page"}
 ```
 
 ```
-
 {"user_id": "user125", "activity_time": "2023-05-10T12:10:00Z", "activity_type": "purchase", "activity_details": "Purchased item with ID 12345"}
 ```
 
 ```
-
 {"user_id": "user127", "activity_time": "2023-05-10T12:10:00Z", "activity_type": "purchase", "activity_details": "Purchased item with ID err"}
 ```
 
-17. Now you should see all four records in Amazon Keyspaces and Cassandra databases. Start validating records in Amazon Keyspaces by connecting to CQL editor from AWS Console, you should see 4 records in table "msk_ks_cass_blog.user_activity" like below screen shot.
+17. Now you should see all four records in Amazon Keyspaces and Cassandra databases. Start validating records in Amazon Keyspaces by connecting to CQL editor from AWS Console, you should see 4 records in table `msk_ks_cass_blog.user_activity` like below screen shot.
 
 Amazon Keyspaces CQL Editor:
 
 ![CQL Editor](./assets/images/keyspaces.png)
 
-17. Now validate data in Apache Cassandra Database table "msk_ks_cass_blog.user_activity" by connecting to CQLSH from any one of Cassandra nodes by doing SSH from Kafka client EC2 instance “msk-ks-cass-KafkaClientInstance”.
+17. Now validate data in Apache Cassandra Database table `msk_ks_cass_blog.user_activity` by connecting to CQLSH from any one of Cassandra nodes by doing SSH from Kafka client EC2 instance `msk-ks-cass-KafkaClientInstance`.
 
 ```
 ssh -i "msk-ks-cass-kp.pem" ubuntu@<IP Address of CassandraNode-One>
 
+```
+
+```
 cd /home/ubuntu/apache-cassandra-3.11.2
 
 bin/cqlsh `hostname -i` -u cassandra -p cassandra
@@ -383,26 +399,23 @@ Having explored how to efficiently implement dual writes to Apache Cassandra and
 
 To delete resources created as part of this guidance, you can finish below steps
 
-1. Delete all resources created using below command. Check cloudformation stacks (cass-cluster-stack and msk-ks-stack) deletion status from cloudformation from AWS console. If VPC created as part of "msk-ks-stack" not deleted as part of below command, then run command in step 2.
+1. Delete all resources created using below command. Check cloudformation stacks `(cass-cluster-stack and msk-ks-stack)` deletion status from cloudformation from AWS console after executing below script. If `VPC` created as part of `msk-ks-stack` not deleted as part of below command, then run command in step 2.
 
 ```
-
 cd guidance-for-dual-writes-migration-from-cassandra-to-keyspaces-using-amazon-kafka-msk-on-aws
 sh delete_stack.sh
 ```
 
-2. This step is optional and needed when VPC and subnets created as part of "msk-ks-stack" not deleted during cloudformartion stack deletion.
+2. This step is `optional` and needed when `VPC` and `subnets` created as part of `msk-ks-stack` not deleted during cloudformartion stack deletion.
 
 ```
-
 cd guidance-for-dual-writes-migration-from-cassandra-to-keyspaces-using-amazon-kafka-msk-on-aws
 sh delete_vpc.sh
 ```
 
-3. If you enable CloudTrail in Deployment Step 4 using Cloudformation from GitHub repo, then delete the cloudformation stack by running below command
+3. If you enable `CloudTrail` in Deployment `Step 4` using Cloudformation from GitHub repo, then delete the cloudformation stack by running below command
 
 ```
-
 aws cloudformation delete-stack --stack-name cloudtrail
 ```
 

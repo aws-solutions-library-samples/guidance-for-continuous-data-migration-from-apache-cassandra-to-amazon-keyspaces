@@ -67,6 +67,64 @@ Resources:
       Tags:
         - Key: Name
           Value: msk-ks-cass-Vpc
+
+  # IAM Role for VPC Flow Logs
+  FlowLogRole:
+    Type: 'AWS::IAM::Role'
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: 'vpc-flow-logs.amazonaws.com'
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: VPCFlowLogPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource:
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/vpc/flowlogs/${AWS::StackName}:*"
+              - Effect: Allow
+                Action:
+                  - 'logs:DescribeLogGroups'
+                  - 'logs:DescribeLogStreams'
+                Resource:
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/vpc/flowlogs/${AWS::StackName}:*"
+    Metadata:
+      cdk_nag:
+        rules_to_suppress:
+          - id: AwsSolutions-IAM5
+            reason: "The VPC Flow Log role requires broad permissions to manage log streams and put log events across multiple log groups dynamically. This is critical to ensure logging continuity and operational transparency."
+
+  # CloudWatch Log Group for VPC Flow Logs with KMS Encryption
+  VPCFlowLogLogGroup:
+    Type: 'AWS::Logs::LogGroup'
+    DependsOn: KSConnectorLogGroupKMSKey
+    Properties:
+      LogGroupName: !Sub '/aws/vpc/flowlogs/${AWS::StackName}'
+      RetentionInDays: 30
+      KmsKeyId: !GetAtt KSConnectorLogGroupKMSKey.Arn
+
+  # VPC Flow Log
+  VPCFlowLog:
+    Type: 'AWS::EC2::FlowLog'
+    DependsOn:
+      - VPCFlowLogLogGroup
+      - FlowLogRole
+    Properties:
+      ResourceId: !Ref VPC
+      ResourceType: VPC
+      TrafficType: ALL
+      LogGroupName: !Ref VPCFlowLogLogGroup
+      DeliverLogsPermissionArn: !GetAtt FlowLogRole.Arn
+
+
   PublicSubnetOne:
     Type: 'AWS::EC2::Subnet'
     Properties:
@@ -227,11 +285,13 @@ Resources:
           FromPort: 22
           ToPort: 22
           CidrIp: !Ref SSHLocation
+          Description: Allow SSH access from the specified IP range
       SecurityGroupEgress:
         - IpProtocol: -1
           FromPort: -1
           ToPort: -1
           CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
 
   MSKSecurityGroup:
     Type: 'AWS::EC2::SecurityGroup'
@@ -246,51 +306,118 @@ Resources:
           SourceSecurityGroupId: !GetAtt
             - KafkaClientInstanceSecurityGroup
             - GroupId
+          Description: Allow Zookeeper traffic on port 2181 from Kafka clients
         - IpProtocol: tcp
           FromPort: 9092
           ToPort: 9098
           SourceSecurityGroupId: !GetAtt
             - KafkaClientInstanceSecurityGroup
             - GroupId
+          Description: Allow Kafka broker traffic on ports 9092-9098 from Kafka clients
         - IpProtocol: tcp
           FromPort: 9142
           ToPort: 9142
           SourceSecurityGroupId: !GetAtt
             - KafkaClientInstanceSecurityGroup
             - GroupId
+          Description: Allow traffic on port 9142 for Keyspaces Cassandra connection
       SecurityGroupEgress:
         - IpProtocol: -1
           FromPort: -1
           ToPort: -1
           CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
 
-  ### Log group for Keyspaces connector loggging
+  # KMS Key for encrypting the Log Groups and MSK Data At Rest
+  KSConnectorLogGroupKMSKey:
+    Type: 'AWS::KMS::Key'
+    Properties:
+      Description: Key for encrypting the Log Groups and MSK Data at Rest
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: '2012-10-17'
+        Statement:
+          # Allow the root user full access to manage the key
+          - Effect: Allow
+            Principal:
+              AWS: !Sub arn:aws:iam::${AWS::AccountId}:root
+            Action: 'kms:*'
+            Resource: '*'
+
+          # Allow CloudWatch Logs to use the key for specific log groups
+          - Effect: Allow
+            Principal:
+              Service: logs.amazonaws.com
+            Action:
+              - 'kms:Encrypt'
+              - 'kms:Decrypt'
+              - 'kms:ReEncrypt*'
+              - 'kms:GenerateDataKey*'
+              - 'kms:DescribeKey'
+            Resource: '*'
+
+          # Allow VPC Flow Logs to use the key
+          - Effect: Allow
+            Principal:
+              Service: vpc-flow-logs.amazonaws.com
+            Action:
+              - 'kms:Encrypt'
+              - 'kms:Decrypt'
+              - 'kms:ReEncrypt*'
+              - 'kms:GenerateDataKey*'
+              - 'kms:DescribeKey'
+            Resource: '*'
+
+          # Allow MSK to use the key for encrypting data at rest
+          - Effect: Allow
+            Principal:
+              Service: kafka.amazonaws.com
+            Action:
+              - 'kms:Encrypt'
+              - 'kms:Decrypt'
+              - 'kms:ReEncrypt*'
+              - 'kms:GenerateDataKey*'
+              - 'kms:DescribeKey'
+            Resource: '*'
+
+
+  # CloudWatch Log Group for Keyspaces Connector with KMS Encryption
   KSConnectorLogGroup:
     Type: 'AWS::Logs::LogGroup'
+    DependsOn: KSConnectorLogGroupKMSKey
     Properties:
       LogGroupName: msk-ks-lg
       RetentionInDays: 14
+      KmsKeyId: !GetAtt KSConnectorLogGroupKMSKey.Arn  # Use the KMS key for encryption
       Tags:
         - Key: Name
           Value: msk-ks-connector-Loggroup
-  ### Log group for Cassandra connector loggging
+
+  # CloudWatch Log Group for Cassandra Connector with KMS Encryption
   CassConnectorLogGroup:
     Type: 'AWS::Logs::LogGroup'
+    DependsOn: KSConnectorLogGroupKMSKey
     Properties:
       LogGroupName: msk-cass-lg
       RetentionInDays: 14
+      KmsKeyId: !GetAtt KSConnectorLogGroupKMSKey.Arn  # Use the KMS key for encryption
       Tags:
         - Key: Name
           Value: msk-cass-connector-Loggroup
-  ### Log group for MSK logs
+
+  # CloudWatch Log Group for MSK Logs with KMS Encryption
   MskLogGroup:
     Type: 'AWS::Logs::LogGroup'
+    DependsOn: KSConnectorLogGroupKMSKey
     Properties:
       LogGroupName: msk-lg
       RetentionInDays: 14
+      KmsKeyId: !GetAtt KSConnectorLogGroupKMSKey.Arn  # Use the KMS key for encryption
       Tags:
         - Key: Name
           Value: msk-Loggroup
+
+
 
   KafkaClientEC2Instance:
     DependsOn: SolMSKCluster
@@ -318,7 +445,7 @@ Resources:
       UserData: !Base64 >
         #!/bin/bash
 
-        yum update -y && yum install -y java-11-amazon-corretto && yum install -y jq
+        yum update -y && yum install -y java-11-amazon-corretto jq
 
         export WORKING_DIR=/home/ec2-user
 
@@ -350,6 +477,8 @@ Resources:
 
         wget -P $WORKING_DIR/kafka/kafka_2.13-3.5.1/libs https://github.com/aws/aws-msk-iam-auth/releases/download/v1.1.1/aws-msk-iam-auth-1.1.1-all.jar
 
+        cp /etc/pki/java/cacerts $WORKING_DIR/kafka/kafka_2.13-3.5.1/config/truststore.jks
+
         touch $WORKING_DIR/kafka/kafka_2.13-3.5.1/bin/client.properties
 
         chown -R ec2-user:ec2-user $WORKING_DIR/kafka
@@ -360,6 +489,10 @@ Resources:
 
         sasl.mechanism=AWS_MSK_IAM
 
+        ssl.truststore.location=$WORKING_DIR/kafka/kafka_2.13-3.5.1/config/truststore.jks
+
+        ssl.truststore.password=changeit
+
         sasl.jaas.config=software.amazon.msk.auth.iam.IAMLoginModule required;
 
         sasl.client.callback.handler.class=software.amazon.msk.auth.iam.IAMClientCallbackHandler
@@ -367,6 +500,8 @@ Resources:
         EOF
 
         chown -R ec2-user:ec2-user $WORKING_DIR/kafka
+
+        aws s3 cp $WORKING_DIR/kafka/kafka_2.13-3.5.1/config/truststore.jks s3://msk-ks-cass-$AWS_ACCOUNT_ID/truststore.jks --region $REGION
 
         $WORKING_DIR/kafka/kafka_2.13-3.5.1/bin/kafka-topics.sh --create --command-config $WORKING_DIR/kafka/kafka_2.13-3.5.1/bin/client.properties --bootstrap-server $msk_bootserv --replication-factor 3 --partitions 3 --topic mskkscassdualwrites
 
@@ -399,6 +534,8 @@ Resources:
 
         aws kafkaconnect create-custom-plugin --cli-input-json file://kafka-sink-plugin.json --region $REGION
 
+      Monitoring: true
+      DisableApiTermination: true
       BlockDeviceMappings:
         - DeviceName: "/dev/xvda"
           Ebs:
@@ -406,7 +543,7 @@ Resources:
             VolumeType: "gp3"
             Encrypted: true
 
-
+  # EC2 IAM Role
   EC2Role:
     Type: 'AWS::IAM::Role'
     Properties:
@@ -417,43 +554,87 @@ Resources:
             Effect: Allow
             Principal:
               Service:
-                  - "ec2.amazonaws.com"
-                  - "kafkaconnect.amazonaws.com"
-                  - "delivery.logs.amazonaws.com"
+                - "ec2.amazonaws.com"
+                - "kafkaconnect.amazonaws.com"
+                - "delivery.logs.amazonaws.com"
             Action: 'sts:AssumeRole'
       Path: /
       Policies:
-        - PolicyName: mskconnect
+        - PolicyName: MskCombinedPolicy
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              - Effect: Allow
+              - Sid: "VisualEditor0"
+                Effect: Allow
                 Action:
-                  - "kafkaconnect:Describe*"
-                  - "kafkaconnect:List*"
-                  - "kafkaconnect:Create*"
-                  - "kafkaconnect:Delete*"
-                  - "kafkaconnect:Update*"
-                Resource: '*'
-        - PolicyName: msk-iam
+                  - "kafka:CreateConfiguration"
+                  - "kafka:UpdateClusterKafkaVersion"
+                  - "kafka:UpdateBrokerCount"
+                  - "kafka:DeleteConfiguration"
+                  - "kafka:DescribeConfigurationRevision"
+                  - "kafka:UpdateClusterConfiguration"
+                  - "kafka:DescribeConfiguration"
+                  - "kafka:DescribeCluster"
+                  - "kafka:UpdateConfiguration"
+                  - "kafka:UpdateBrokerStorage"
+                  - "kafka:GetClusterPolicy"
+                  - "kafka:DescribeClusterV2"
+                  - "kafka:UpdateMonitoring"
+                  - "kafka:UpdateStorage"
+                  - "kafka:ListNodes"
+                  - "kafka:ListClusterOperationsV2"
+                  - "kafka:UpdateBrokerType"
+                  - "kafka:DeleteClusterPolicy"
+                  - "kafka:ListClusterOperations"
+                Resource:
+                  - !Sub "arn:aws:kafka:${AWS::Region}:${AWS::AccountId}:configuration/*/*"
+                  - !Sub "arn:aws:kafka:${AWS::Region}:${AWS::AccountId}:cluster/aws-MSKCluster/*"
+
+              - Sid: "VisualEditor1"
+                Effect: Allow
+                Action:
+                  - "kafka-cluster:AlterGroup"
+                  - "kafka-cluster:CreateTopic"
+                  - "kafka-cluster:DescribeCluster"
+                  - "kafka-cluster:AlterTopic"
+                  - "kafka-cluster:ReadData"
+                  - "kafka-cluster:DescribeTopic"
+                  - "kafka-cluster:DescribeGroup"
+                  - "kafka-cluster:Connect"
+                  - "kafka-cluster:WriteData"
+                Resource:
+                  - !Sub "arn:aws:kafka:${AWS::Region}:${AWS::AccountId}:cluster/aws-MSKCluster/*"
+                  - !Sub "arn:aws:kafka:${AWS::Region}:${AWS::AccountId}:group/aws-MSKCluster/*/*"
+                  - !Sub "arn:aws:kafka:${AWS::Region}:${AWS::AccountId}:topic/aws-MSKCluster/*"
+
+              - Sid: "VisualEditor2"
+                Effect: Allow
+                Action:
+                  - "kafkaconnect:CreateCustomPlugin"
+                  - "kafkaconnect:ListCustomPlugins"
+                  - "kafka:ListClusters"
+                  - "kafka:GetBootstrapBrokers"
+                Resource: "*"
+        - PolicyName: S3CustomPolicy
           PolicyDocument:
-            Version: "2012-10-17"
+            Version: '2012-10-17'
             Statement:
               - Effect: Allow
                 Action:
-                  - "kafka-cluster:Describe*"
-                  - "kafka-cluster:List*"
-                  - "kafka-cluster:Create*"
-                  - "kafka-cluster:Delete*"
-                  - "kafka-cluster:Update*"
-                  - "kafka-cluster:Write*"
-                  - "kafka-cluster:Alter*"
-                  - "kafka-cluster:Connect*"
-                Resource: '*'
-      ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/AmazonMSKFullAccess'
-        - 'arn:aws:iam::aws:policy/AWSCloudFormationReadOnlyAccess'
-        - 'arn:aws:iam::aws:policy/AmazonS3FullAccess'
+                  - "s3:ListBucket"
+                  - "s3:GetObject"
+                  - "s3:PutObject"
+                  - "s3:DeleteObject"
+                Resource:
+                  - !Sub "arn:aws:s3:::msk-ks-cass-${AWS::AccountId}"
+                  - !Sub "arn:aws:s3:::msk-ks-cass-${AWS::AccountId}/*"
+    Metadata:
+      cdk_nag:
+        rules_to_suppress:
+          - id: AwsSolutions-IAM5
+            reason: "Wildcard permissions are necessary due to the dynamic and evolving nature of the Kafka Connect and Kafka Cluster resources managed by this role. Specific actions and resource ARNs are not always known at the time of role creation, necessitating broader permissions."
+
+  # MSK IAM Role
   MskRole:
     Type: 'AWS::IAM::Role'
     Properties:
@@ -464,41 +645,88 @@ Resources:
             Effect: Allow
             Principal:
               Service:
-                  - "kafkaconnect.amazonaws.com"
-                  - "delivery.logs.amazonaws.com"
+                - "kafkaconnect.amazonaws.com"
+                - "delivery.logs.amazonaws.com"
             Action: 'sts:AssumeRole'
       Path: /
       Policies:
-        - PolicyName: mskconnect
+        - PolicyName: MskCombinedPolicy
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
-              - Effect: Allow
+              - Sid: "VisualEditor0"
+                Effect: Allow
                 Action:
-                  - "kafkaconnect:Describe*"
-                  - "kafkaconnect:List*"
-                  - "kafkaconnect:Create*"
-                  - "kafkaconnect:Delete*"
-                  - "kafkaconnect:Update*"
-                Resource: '*'
-        - PolicyName: msk-iam
+                  - "kafka:CreateConfiguration"
+                  - "kafka:UpdateClusterKafkaVersion"
+                  - "kafka:UpdateBrokerCount"
+                  - "kafka:DeleteConfiguration"
+                  - "kafka:DescribeConfigurationRevision"
+                  - "kafka:UpdateClusterConfiguration"
+                  - "kafka:DescribeConfiguration"
+                  - "kafka:DescribeCluster"
+                  - "kafka:UpdateConfiguration"
+                  - "kafka:UpdateBrokerStorage"
+                  - "kafka:GetClusterPolicy"
+                  - "kafka:DescribeClusterV2"
+                  - "kafka:UpdateMonitoring"
+                  - "kafka:UpdateStorage"
+                  - "kafka:ListNodes"
+                  - "kafka:ListClusterOperationsV2"
+                  - "kafka:UpdateBrokerType"
+                  - "kafka:DeleteClusterPolicy"
+                  - "kafka:ListClusterOperations"
+                Resource:
+                  - !Sub "arn:aws:kafka:${AWS::Region}:${AWS::AccountId}:configuration/*/*"
+                  - !Sub "arn:aws:kafka:${AWS::Region}:${AWS::AccountId}:cluster/aws-MSKCluster/*"
+
+              - Sid: "VisualEditor1"
+                Effect: Allow
+                Action:
+                  - "kafka-cluster:AlterGroup"
+                  - "kafka-cluster:CreateTopic"
+                  - "kafka-cluster:DescribeCluster"
+                  - "kafka-cluster:AlterTopic"
+                  - "kafka-cluster:ReadData"
+                  - "kafka-cluster:DescribeTopic"
+                  - "kafka-cluster:DescribeGroup"
+                  - "kafka-cluster:Connect"
+                  - "kafka-cluster:WriteData"
+                Resource:
+                  - !Sub "arn:aws:kafka:${AWS::Region}:${AWS::AccountId}:cluster/aws-MSKCluster/*"
+                  - !Sub "arn:aws:kafka:${AWS::Region}:${AWS::AccountId}:group/aws-MSKCluster/*/*"
+                  - !Sub "arn:aws:kafka:${AWS::Region}:${AWS::AccountId}:topic/aws-MSKCluster/*"
+
+              - Sid: "VisualEditor2"
+                Effect: Allow
+                Action:
+                  - "kafkaconnect:CreateCustomPlugin"
+                  - "kafkaconnect:ListCustomPlugins"
+                  - "kafka:ListClusters"
+                  - "kafka:GetBootstrapBrokers"
+                Resource: "*"
+        - PolicyName: S3CustomPolicyForMskRole
           PolicyDocument:
-            Version: "2012-10-17"
+            Version: '2012-10-17'
             Statement:
               - Effect: Allow
                 Action:
-                  - "kafka-cluster:Describe*"
-                  - "kafka-cluster:List*"
-                  - "kafka-cluster:Create*"
-                  - "kafka-cluster:Delete*"
-                  - "kafka-cluster:Update*"
-                  - "kafka-cluster:Write*"
-                  - "kafka-cluster:Alter*"
-                  - "kafka-cluster:Connect*"
-                Resource: '*'
-      ManagedPolicyArns:
-        - 'arn:aws:iam::aws:policy/AmazonMSKFullAccess'
-        - 'arn:aws:iam::aws:policy/AmazonS3FullAccess'
+                  - "s3:ListBucket"
+                  - "s3:GetObject"
+                  - "s3:PutObject"
+                  - "s3:DeleteObject"
+                Resource:
+                  - !Sub "arn:aws:s3:::msk-ks-cass-${AWS::AccountId}"
+                  - !Sub "arn:aws:s3:::msk-ks-cass-${AWS::AccountId}/*"
+    Metadata:
+      cdk_nag:
+        rules_to_suppress:
+          - id: AwsSolutions-IAM5
+            reason: "Wildcard permissions are necessary due to the dynamic and evolving nature of the Kafka Connect and Kafka Cluster resources managed by this role. Specific actions and resource ARNs are not always known at the time of role creation, necessitating broader permissions."
+
+
+
+
   KSUser:
     Type: AWS::IAM::User
     Properties:
@@ -515,6 +743,7 @@ Resources:
         - !Ref EC2Role
   SolMSKCluster:
     Type: 'AWS::MSK::Cluster'
+    DependsOn: KSConnectorLogGroupKMSKey
     Properties:
       BrokerNodeGroupInfo:
         ClientSubnets:
@@ -538,8 +767,10 @@ Resources:
             Enabled: true
       EncryptionInfo:
         EncryptionInTransit:
-          ClientBroker: TLS_PLAINTEXT
+          ClientBroker: TLS
           InCluster: true
+        EncryptionAtRest:
+          DataVolumeKMSKeyId: !GetAtt KSConnectorLogGroupKMSKey.Arn
       EnhancedMonitoring: PER_TOPIC_PER_BROKER
       KafkaVersion: 3.5.1
       NumberOfBrokerNodes: 3
@@ -561,6 +792,7 @@ Resources:
         SourceSecurityGroupId: !GetAtt
           - MSKSecurityGroup
           - GroupId
+        Description: "Allow Kafka and Zookeeper communication between MSK brokers and clients. Allow CQL traffic on port 9142"
 
 #Private VPC endpoint for Amazon Keyspaces access
   KeyspacesEndpoint:

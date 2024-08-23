@@ -35,7 +35,7 @@
     "authenticationType": "NONE"
   },
   "kafkaClusterEncryptionInTransit": {
-    "encryptionType": "PLAINTEXT"
+    "encryptionType": "TLS"
   },
   "logDelivery": {
     "workerLogDelivery": {

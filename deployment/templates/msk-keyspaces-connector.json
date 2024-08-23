@@ -35,7 +35,7 @@
     "authenticationType": "NONE"
   },
   "kafkaClusterEncryptionInTransit": {
-    "encryptionType": "PLAINTEXT"
+    "encryptionType": "TLS"
   },
   "logDelivery": {
     "workerLogDelivery": {
@@ -58,7 +58,7 @@
     "auth.password": "ks-user-passwd",
     "tasks.max": "4",
     "topics": "mskkscassdualwrites",
-    "ssl.provider": "OpenSSL",
+    "ssl.provider": "JDK",
     "offset.flush.interval.ms": "1000",
     "connectionPoolLocalSize": "3",
     "maxNumberOfRecordsInBatch": "1",
