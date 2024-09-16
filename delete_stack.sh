@@ -57,19 +57,17 @@ sleep 60
 echo "Deleting S3 bucket msk-ks-cass-$AWS_ACCOUNT_ID"
 aws s3 rb s3://msk-ks-cass-$AWS_ACCOUNT_ID
 
-# Set Keyspaces user name
+# Set Keyspaces user name and group
 USER_NAME="ks-user"
+GROUP_NAME="ks-user-group"
 
-# Detach all managed policies from ks-user
-echo "Detaching managed policies from user $USER_NAME"
-MANAGED_POLICIES=$(aws iam list-attached-user-policies --user-name $USER_NAME --query "AttachedPolicies[*].PolicyArn" --output text)
-for policy_arn in $MANAGED_POLICIES; do
-  aws iam detach-user-policy --user-name $USER_NAME --policy-arn $policy_arn
-done
+# Remove user from the group
+echo "Removing user $USER_NAME from group $GROUP_NAME"
+aws iam remove-user-from-group --user-name $USER_NAME --group-name $GROUP_NAME
 
 sleep 10
 
-# Delete all inline policies of ks-user
+# Delete all inline policies of ks-user (if any)
 echo "Deleting inline policies of user $USER_NAME"
 INLINE_POLICIES=$(aws iam list-user-policies --user-name $USER_NAME --query "PolicyNames" --output text)
 for policy_name in $INLINE_POLICIES; do
@@ -90,6 +88,27 @@ sleep 10
 # Delete the IAM user
 echo "Deleting IAM user $USER_NAME"
 aws iam delete-user --user-name $USER_NAME
+
+sleep 10
+
+# Detach all managed policies from the group
+echo "Detaching managed policies from group $GROUP_NAME"
+GROUP_MANAGED_POLICIES=$(aws iam list-attached-group-policies --group-name $GROUP_NAME --query "AttachedPolicies[*].PolicyArn" --output text)
+for policy_arn in $GROUP_MANAGED_POLICIES; do
+  aws iam detach-group-policy --group-name $GROUP_NAME --policy-arn $policy_arn
+done
+
+sleep 10
+
+# Delete the group if empty
+echo "Checking if group $GROUP_NAME is empty"
+GROUP_USERS=$(aws iam get-group --group-name $GROUP_NAME --query "Users" --output text)
+if [ -z "$GROUP_USERS" ]; then
+  echo "Group $GROUP_NAME is empty. Deleting group."
+  aws iam delete-group --group-name $GROUP_NAME
+else
+  echo "Group $GROUP_NAME is not empty, cannot delete."
+fi
 
 # Delete custom Kafka sink plugin
 echo "Deleting custom Kafka sink plugin $plugin_arn"
