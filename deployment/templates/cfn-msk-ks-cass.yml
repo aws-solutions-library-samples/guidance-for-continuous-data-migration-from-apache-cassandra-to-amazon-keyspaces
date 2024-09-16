@@ -727,12 +727,25 @@ Resources:
 
 
 
+  KSUserGroup:
+    Type: AWS::IAM::Group
+    Metadata:
+      cdk_nag:
+        rules_to_suppress:
+          - id: AwsSolutions-IAM4
+            reason: "AWS managed policies are required for this Keyspaces user group to interact with Keyspaces using the AmazonKeyspacesFullAccess policy."
+    Properties:
+      GroupName: ks-user-group
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonKeyspacesFullAccess
+
   KSUser:
     Type: AWS::IAM::User
     Properties:
       UserName: ks-user
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/AmazonKeyspacesFullAccess
+      Groups:
+        - !Ref KSUserGroup
+
 
 
   EC2InstanceProfile:
