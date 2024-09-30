@@ -1,4 +1,4 @@
-# Guidance for Apache Cassandra migration to Amazon Keyspaces using Amazon MSK dual writes
+# Guidance for Continuous Data Migration from Apache Cassandra to Amazon Keyspaces
 
 
 ## Table of Content

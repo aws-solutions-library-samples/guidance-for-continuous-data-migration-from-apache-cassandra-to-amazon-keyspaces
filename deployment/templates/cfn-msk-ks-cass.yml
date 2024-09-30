@@ -1,4 +1,5 @@
 AWSTemplateFormatVersion: 2010-09-09
+Description: Guidance for Continuous Data Migration from Apache Cassandra to Amazon Keyspaces (SO9533)
 Parameters:
   KeyName:
     Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
